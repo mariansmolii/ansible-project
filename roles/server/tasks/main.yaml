@@ -1,0 +1,132 @@
+---
+- name: Update apt and repo cache
+  ansible.builtin.apt:
+    update_cache: yes
+    force_apt_get: yes
+    cache_valid_time: 3600
+
+- name: Install software-properties-common
+  ansible.builtin.apt:
+    name: software-properties-common
+    state: present
+
+- name: Add php{{ php_version }} repository
+  ansible.builtin.apt_repository:
+    repo: ppa:ondrej/php
+    state: present
+    update_cache: yes
+
+- name: Add keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+
+- name: Get the gpg key for nodejs LTS
+  ansible.builtin.get_url:
+    url: "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key"
+    dest: /etc/apt/keyrings/nodesource.key
+
+- name: Install the gpg key for nodejs LTS
+  ansible.builtin.command:
+    cmd: gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg /etc/apt/keyrings/nodesource.key
+
+- name: Install the nodejs LTS repos
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_{{ nodejs_version }}.x nodistro main"
+    filename: /etc/apt/sources.list.d/nodesource
+    state: present
+    update_cache: yes
+
+- name: Installation of php{{ php_version }} and it's dependencies
+  ansible.builtin.apt:
+    name:
+      - php{{ php_version }}
+      - php{{ php_version }}-cli
+      - php{{ php_version }}-curl
+      - php{{ php_version }}-bz2
+      - php{{ php_version }}-mbstring
+      - php{{ php_version }}-intl
+      - php{{ php_version }}-xml
+      - php{{ php_version }}-pgsql
+
+- name: Install Node.js and Apache
+  ansible.builtin.apt:
+    name:
+      - nodejs
+      - apache2
+
+- name: Install Composer
+  ansible.builtin.get_url:
+    url: https://getcomposer.org/download/latest-stable/composer.phar
+    dest: /usr/local/bin/composer
+    mode: 0755
+
+- name: Clone app repository
+  ansible.builtin.git:
+    repo: "{{ app_repo }}"
+    dest: ./php_app
+    clone: yes
+    update: yes
+
+- name: Copy project to server
+  ansible.builtin.copy:
+    src: ./php_app/
+    dest: "{{ app_path }}"
+    remote_src: true
+
+- name: Install dependencies from composer.json
+  community.general.composer:
+    command: install
+    working_dir: "{{ app_path }}"
+  environment:
+    COMPOSER_ALLOW_SUPERUSER: 1
+
+- name: Install packages from package.json
+  community.general.npm:
+    path: "{{ app_path }}"
+
+- name: Set app env
+  ansible.builtin.template:
+    src: app.conf.j2
+    dest: "{{ app_path }}/.env"
+
+- name: Generate artisan key
+  ansible.builtin.command:
+    cmd: php artisan key:generate
+  args:
+    chdir: "{{ app_path }}"
+
+- name: Run db migrate
+  ansible.builtin.command:
+    cmd: php artisan migrate
+  args:
+    chdir: "{{ app_path }}"
+
+- name: Built front-end
+  ansible.builtin.command:
+    cmd: npm run build
+  args:
+    chdir: "{{ app_path }}"
+
+- name: Set permissions for user www-data
+  ansible.builtin.file:
+    path: "{{ app_path }}"
+    owner: "{{ apache_owner }}"
+    group: "{{ apache_group }}"
+    mode: 0755
+    recurse: true
+
+- name: Enable the Apache2 module mod_rewrite
+  community.general.apache2_module:
+    state: present
+    name: rewrite
+
+- name: Config Apache for application
+  ansible.builtin.template:
+    src: apache.conf.j2
+    dest: /etc/apache2/sites-available/app.conf
+
+- name: Enable application site
+  ansible.builtin.command:
+    cmd: a2ensite app
+  notify: Restart Apache

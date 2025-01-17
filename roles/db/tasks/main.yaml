@@ -1,0 +1,62 @@
+---
+- name: Update apt and repo cache
+  ansible.builtin.apt:
+    update_cache: yes
+    force_apt_get: yes
+    cache_valid_time: 3600
+
+- name: Install acl
+  ansible.builtin.apt:
+    name: acl
+    state: present
+
+- name: Install PostgreSQL
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-contrib
+      - python3-psycopg2
+    state: present
+
+- name: Restart PostgreSQL server
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+
+- name: Get path to PostgreSQL config file
+  ansible.builtin.command:
+    cmd: sudo -u postgres psql -t -P format=unaligned -c 'SHOW hba_file;'
+  register: hba_file
+
+- name: Create new user
+  community.postgresql.postgresql_user:
+    name: "{{ db_user }}"
+    password: "{{ db_pass }}"
+  become_user: postgres
+
+- name: Create new database
+  community.postgresql.postgresql_db:
+    name: "{{ db_name }}"
+    owner: "{{ db_user }}"
+  become_user: postgres
+
+- name: Set listen addresses to all
+  community.postgresql.postgresql_set:
+    name: listen_addresses
+    value: "*"
+  become_user: postgres
+  notify:
+    - Restart PostgreSQL
+
+- name: Grant user access to database
+  community.postgresql.postgresql_pg_hba:
+    dest: "{{ hba_file.stdout }}"
+    contype: host
+    users: "{{ db_user }}"
+    source: all
+    databases: "{{ db_name }}"
+    method: scram-sha-256
+    create: true
+  become_user: postgres
+  notify:
+    - Restart PostgreSQL

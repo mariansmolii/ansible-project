@@ -1,0 +1,9 @@
+---
+app_path: /var/www/html
+app_repo: https://github.com/Practical-DevOps/app-for-devops
+apache_owner: www-data
+apache_group: www-data
+db_host: 192.168.50.21
+
+php_version: 8.1
+nodejs_version: 20
