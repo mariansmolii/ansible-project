@@ -5,5 +5,5 @@ apache_owner: www-data
 apache_group: www-data
 db_host: 192.168.50.21
 
-php_version: 8.1
+php_version: 8.2
 nodejs_version: 20
